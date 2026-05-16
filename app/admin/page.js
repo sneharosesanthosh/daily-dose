@@ -6,6 +6,8 @@ import { revalidatePath } from "next/cache";
 import { Globe, LogOut, BookMarked } from "lucide-react";
 import DeleteButton from "./DeleteButton";
 
+export const dynamic = "force-dynamic";
+
 async function requireAdmin() {
   const cookieStore = await cookies();
   if (cookieStore.get("admin_session")?.value !== "1") redirect("/login");

@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import CategoryPicker from "../CategoryPicker";
 
+export const dynamic = "force-dynamic";
+
 async function requireAdmin() {
   const cookieStore = await cookies();
   if (cookieStore.get("admin_session")?.value !== "1") redirect("/login");
