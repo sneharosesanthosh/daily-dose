@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
 import CategoryPicker from "../CategoryPicker";
+import SubmitButton from "../SubmitButton";
 
 export const dynamic = "force-dynamic";
 
@@ -75,12 +76,12 @@ export default async function AddQuotePage() {
         <CategoryPicker categories={categories} />
 
         <div className="flex items-center gap-3 pt-2">
-          <button
-            type="submit"
+          <SubmitButton
             className="px-6 py-2.5 rounded-lg bg-accent text-cream font-sans font-medium hover:bg-ink transition-colors"
+            pendingLabel="Saving…"
           >
             Save quote
-          </button>
+          </SubmitButton>
           <Link
             href="/admin"
             className="px-6 py-2.5 rounded-lg border border-border text-muted font-sans text-sm hover:text-ink transition-colors"

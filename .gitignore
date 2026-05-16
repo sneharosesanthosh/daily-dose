@@ -43,5 +43,6 @@ next-env.d.ts
 # prisma generated client
 /app/generated/prisma
 
-# Claude Code local config
+# Claude Code local config (ignore everything except shared skills)
 .claude/
+!.claude/skills/
