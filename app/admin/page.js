@@ -38,13 +38,15 @@ export default async function AdminPage() {
           <Globe size={14} />
           View site
         </Link>
-        <Link
-          href="/logout"
-          className="inline-flex items-center gap-1.5 text-sm font-sans text-muted hover:text-red-500 transition-colors"
-        >
-          Sign out
-          <LogOut size={14} />
-        </Link>
+        <form action="/logout" method="POST">
+          <button
+            type="submit"
+            className="inline-flex items-center gap-1.5 text-sm font-sans text-muted hover:text-red-500 transition-colors cursor-pointer"
+          >
+            Sign out
+            <LogOut size={14} />
+          </button>
+        </form>
       </nav>
 
       {/* Header */}
