@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -57,9 +58,9 @@ export default async function LoginPage({ searchParams }) {
         </form>
 
         <div className="mt-8 text-center">
-          <a href="/" className="text-sm font-sans text-muted hover:text-ink transition-colors">
+          <Link href="/" className="text-sm font-sans text-muted hover:text-ink transition-colors">
             ← Back to site
-          </a>
+          </Link>
         </div>
       </div>
     </main>
