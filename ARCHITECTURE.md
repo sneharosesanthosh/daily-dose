@@ -6,8 +6,15 @@ A curated quotes web app. Visitors pick a category and click "Generate" to get a
 
 ```mermaid
 graph TB
+    Dev[👩‍💻 Developer]
     Visitor[👤 Visitor]
     Admin[🔐 Admin]
+
+    subgraph GitHub["GitHub"]
+        Repo[(Repository)]
+        Actions["GitHub Actions<br/>CI: lint + build"]
+        Protection["Branch Protection<br/>blocks direct push to main"]
+    end
 
     subgraph Vercel["Vercel (Edge + Serverless)"]
         Proxy["proxy.js<br/>Auth gate for /admin/*"]
@@ -23,6 +30,12 @@ graph TB
     end
 
     Neon[("Neon Postgres<br/>via WebSocket")]
+
+    Dev -->|"push branch + open PR"| Repo
+    Repo --> Actions
+    Actions -->|"green ✅ unlocks merge"| Protection
+    Protection -->|"merge to main"| Repo
+    Repo -->|"auto-deploy on main update"| Vercel
 
     Visitor -->|"HTTPS"| Home
     Visitor -->|"fetch on click"| API
@@ -101,6 +114,47 @@ sequenceDiagram
 
 ---
 
+## Flow 3 — CI/CD pipeline (from `git push` to live site)
+
+```mermaid
+sequenceDiagram
+    actor Dev as Developer
+    participant Local as Local repo
+    participant GH as GitHub
+    participant CI as GitHub Actions (CI)
+    participant Vercel as Vercel (CD)
+
+    Dev->>Local: git checkout -b new-feature
+    Dev->>Local: ...code + commit...
+    Dev->>GH: git push -u origin new-feature
+    Dev->>GH: Open PR via web UI
+
+    GH->>CI: trigger CI workflow
+    CI->>CI: npm ci
+    CI->>CI: npm run lint
+    CI->>CI: npm run build
+    alt CI passes ✅
+        CI-->>GH: green check
+        Dev->>GH: click "Merge pull request"
+        GH->>GH: merge into main
+        GH->>Vercel: webhook: main updated
+        Vercel->>Vercel: build + atomic deploy
+        Vercel-->>Dev: site live
+    else CI fails ❌
+        CI-->>GH: red check
+        Note over GH: Branch protection blocks merge<br/>until CI is green
+    end
+```
+
+**Split:** GitHub Actions handles **CI** (validation before merge); Vercel handles **CD** (deployment after merge). They don't conflict because they run at different times — CI on PRs, CD only when `main` is updated.
+
+**Branch protection** ensures broken code never reaches `main`:
+- Direct pushes to `main` are blocked
+- PRs cannot be merged until the `check` job (lint + build) is green
+- All changes must therefore go through PR → CI → merge → deploy
+
+---
+
 ## Tech stack
 
 | Layer | Choice | Why |
@@ -147,6 +201,9 @@ daily-dose/
 │
 ├── proxy.js                       ← Edge auth gate for /admin/* (Next.js 16 "middleware")
 │
+├── .github/
+│   └── workflows/ci.yml           ← GitHub Actions CI — lint + build on every PR
+│
 └── .claude/skills/seed-quotes/    ← Claude Code skill — invoke /seed-quotes for curated quotes
 ```
 
@@ -161,6 +218,7 @@ daily-dose/
 5. **Edge proxy for auth** — runs before any rendering or caching, the canonical Next.js 16 way to gate routes.
 6. **Random by `OFFSET` + `exclude` param** — fine for small libraries; avoids same quote twice in a row.
 7. **Categories stored as free-text strings** — no separate `Category` table needed; the home page derives the pills from `DISTINCT category` queries.
+8. **CI on GitHub Actions, CD on Vercel** — clean split: validation gates before merge, atomic deploys after merge. Branch protection on `main` enforces the PR workflow so broken code never reaches production.
 
 ---
 
