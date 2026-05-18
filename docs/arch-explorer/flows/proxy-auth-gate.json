@@ -1,0 +1,37 @@
+{
+  "id": "proxy-auth-gate",
+  "title": "Edge proxy gates /admin/*",
+  "category": "Admin auth",
+  "actor": "Anyone hitting /admin/*",
+  "summary": "Every request to /admin/* hits proxy.js at the edge before any rendering. If admin_session=1 is present the request passes through; otherwise it 307-redirects to /login. This is the Next.js 16 'middleware' replacement.",
+  "steps": [
+    {
+      "from": "admin",
+      "to": "proxy",
+      "label": "GET /admin/anything",
+      "note": "The matcher config catches every /admin/* path.",
+      "ref": "proxy.js:12"
+    },
+    {
+      "from": "proxy",
+      "to": "proxy",
+      "label": "read admin_session cookie",
+      "note": "request.cookies.get('admin_session')?.value",
+      "ref": "proxy.js:4"
+    },
+    {
+      "from": "proxy",
+      "to": "login",
+      "label": "redirect → /login",
+      "note": "Cookie missing or not '1' → bounce to login. Branch 1 of the if/else.",
+      "ref": "proxy.js:5"
+    },
+    {
+      "from": "proxy",
+      "to": "admin-list",
+      "label": "pass through (return undefined)",
+      "note": "Cookie valid → proxy() returns nothing and Next forwards the request to the page. Same gate runs for /admin/add and /admin/edit/[id].",
+      "ref": "proxy.js:3"
+    }
+  ]
+}

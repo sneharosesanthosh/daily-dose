@@ -1,0 +1,92 @@
+{
+  "id": "admin-add-quote",
+  "title": "Admin adds a quote",
+  "category": "Admin CRUD",
+  "actor": "Admin (signed in)",
+  "summary": "From /admin, the admin clicks 'Add quote' to load /admin/add. The page renders a form with a CategoryPicker (free-text input + clickable existing-category chips). On submit, a Server Action inserts the row and revalidates both / and /admin so the new quote shows up everywhere.",
+  "steps": [
+    {
+      "from": "admin",
+      "to": "proxy",
+      "label": "GET /admin/add",
+      "note": "Edge gate runs first — see proxy-auth-gate.",
+      "ref": "proxy.js:12"
+    },
+    {
+      "from": "proxy",
+      "to": "admin-add",
+      "label": "pass through",
+      "note": "Cookie present → request forwarded to the page.",
+      "ref": "proxy.js:3"
+    },
+    {
+      "from": "admin-add",
+      "to": "admin-add",
+      "label": "requireAdmin()",
+      "note": "Defense-in-depth: page also checks the cookie itself in case the proxy is bypassed.",
+      "ref": "app/admin/add/page.js:11"
+    },
+    {
+      "from": "admin-add",
+      "to": "prisma",
+      "label": "findMany({ distinct: ['category'] })",
+      "note": "Fetched to populate the CategoryPicker chips.",
+      "ref": "app/admin/add/page.js:31"
+    },
+    {
+      "from": "prisma",
+      "to": "neon",
+      "label": "SELECT DISTINCT category",
+      "ref": "lib/prisma.js:5"
+    },
+    {
+      "from": "admin-add",
+      "to": "admin",
+      "label": "render form",
+      "payload": "fields: text*, author, source, category*",
+      "note": "SubmitButton uses useFormStatus for the 'Saving…' state.",
+      "ref": "app/admin/add/page.js:43"
+    },
+    {
+      "from": "admin",
+      "to": "admin-add",
+      "label": "POST form (Server Action)",
+      "payload": "FormData { text, author, source, category }",
+      "note": "form action={addQuote} — runs on the server, no client JS roundtrip.",
+      "ref": "app/admin/add/page.js:43"
+    },
+    {
+      "from": "admin-add",
+      "to": "admin-add",
+      "label": "validate text + category",
+      "note": "Silent no-op if either is empty after trim. Author and source are optional and saved as null when blank.",
+      "ref": "app/admin/add/page.js:22"
+    },
+    {
+      "from": "admin-add",
+      "to": "prisma",
+      "label": "quote.create({ data })",
+      "ref": "app/admin/add/page.js:23"
+    },
+    {
+      "from": "prisma",
+      "to": "neon",
+      "label": "INSERT INTO Quote …",
+      "ref": "lib/prisma.js:5"
+    },
+    {
+      "from": "admin-add",
+      "to": "admin-add",
+      "label": "revalidatePath('/'), revalidatePath('/admin')",
+      "note": "Drops cached HTML for both pages so the new quote appears on next render.",
+      "ref": "app/admin/add/page.js:24"
+    },
+    {
+      "from": "admin-add",
+      "to": "admin",
+      "label": "redirect → /admin",
+      "note": "Server Action redirect bounces back to the list view.",
+      "ref": "app/admin/add/page.js:26"
+    }
+  ]
+}

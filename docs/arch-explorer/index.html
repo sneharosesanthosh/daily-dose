@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Architecture Explorer</title>
+<meta name="viewport" content="width=1600,initial-scale=1" />
+<style>
+  :root {
+    --bg: #0b1020;
+    --bg-2: #0f1530;
+    --ink: #e6ecf5;
+    --ink-dim: #93a0b8;
+    --ink-faint: #5e6a82;
+    --line: #1c2543;
+    --line-strong: #2b3768;
+    --accent: #7aa2ff;
+    --accent-2: #fca5a5;
+    --hl: #ffd166;
+    --client: #60a5fa;
+    --workers: #f59e0b;
+    --edge: #c084fc;
+    --vps: #34d399;
+    --external: #94a3b8;
+    --pulse: #ffd166;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif; height: 100%; }
+  body { display: grid; grid-template-rows: 56px 1fr; min-height: 100vh; }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #11183a, #0b1020);
+  }
+  header h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; margin: 0; }
+  header h1 .dim { color: var(--ink-dim); font-weight: 400; margin-left: 8px; }
+  header .meta { color: var(--ink-faint); font-size: 12px; }
+
+  main { display: grid; grid-template-columns: 280px 1fr; min-height: 0; }
+
+  /* Sidebar */
+  aside {
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+    padding: 14px 0;
+    background: var(--bg-2);
+  }
+  aside .cat { margin-bottom: 4px; }
+  aside .cat > .cat-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px; cursor: pointer;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-dim);
+    user-select: none;
+  }
+  aside .cat > .cat-head:hover { color: var(--ink); }
+  aside .cat > .cat-head .caret { transition: transform 120ms ease; opacity: 0.5; }
+  aside .cat.collapsed > .cat-head .caret { transform: rotate(-90deg); }
+  aside .cat.collapsed > .flows { display: none; }
+  aside .flows { padding: 2px 0 6px 0; }
+  aside .flow {
+    display: block; width: 100%; text-align: left; padding: 7px 16px 7px 28px;
+    background: none; border: 0; color: var(--ink); font-size: 13px; cursor: pointer;
+    border-left: 2px solid transparent;
+  }
+  aside .flow:hover { background: rgba(122,162,255,0.08); color: var(--accent); }
+  aside .flow.active { background: rgba(122,162,255,0.14); border-left-color: var(--accent); color: var(--accent); font-weight: 500; }
+  aside .flow.missing { color: var(--ink-faint); font-style: italic; cursor: default; }
+  aside .flow.missing:hover { background: none; color: var(--ink-faint); }
+
+  /* Canvas — translate-based: stage is absolutely positioned and panned via
+     transform: translate(tx,ty) scale(zoom). No native scroll. */
+  section.canvas { position: relative; overflow: hidden; cursor: grab; }
+  section.canvas.panning, section.canvas.panning * { cursor: grabbing !important; user-select: none; }
+  section.canvas.space-held, section.canvas.space-held * { cursor: grab !important; }
+  .stage {
+    position: absolute; left: 0; top: 0;
+    transform-origin: 0 0;
+    /* No will-change / no permanent transition — keeps HTML re-rasterising
+       at every scale (crisp text + borders) and removes the lag that a CSS
+       transition introduces during rapid wheel events.
+       Discrete actions (button click, fit-to-window) opt into a brief
+       transition via the .animating class below. */
+  }
+  .stage.animating { transition: transform 140ms cubic-bezier(0.2, 0, 0, 1); }
+
+  /* Zoom controls */
+  .zoom-controls {
+    position: absolute; top: 12px; right: 12px;
+    z-index: 5; display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px; background: rgba(11,16,32,0.85); backdrop-filter: blur(8px);
+    border: 1px solid var(--line-strong); border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  }
+  .zoom-controls button {
+    width: 28px; height: 26px; padding: 0;
+    background: none; border: 0; color: var(--ink); font-size: 14px; cursor: pointer;
+    border-radius: 5px;
+  }
+  .zoom-controls button:hover { background: rgba(122,162,255,0.14); color: var(--accent); }
+  .zoom-controls .zoom-level {
+    min-width: 42px; text-align: center; font-size: 11.5px; color: var(--ink-dim);
+    font-variant-numeric: tabular-nums; user-select: none;
+  }
+
+  .lane-label {
+    position: absolute; left: 8px;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--ink-faint);
+    pointer-events: none;
+  }
+
+  .node {
+    position: absolute; width: 150px; height: 56px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+    border: 1px solid var(--line-strong);
+    border-radius: 10px; padding: 8px 12px;
+    color: var(--ink); font-size: 12px; line-height: 1.25;
+    display: flex; flex-direction: column; justify-content: center;
+    cursor: default;
+    transition: opacity 180ms ease, border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+    z-index: 2;
+  }
+  .node .lbl { font-weight: 600; font-size: 12.5px; }
+  .node .kind { color: var(--ink-faint); font-size: 10.5px; margin-top: 2px; }
+  .node[data-lane="client"]   { border-left: 3px solid var(--client); }
+  .node[data-lane="workers"]  { border-left: 3px solid var(--workers); }
+  .node[data-lane="edge"]     { border-left: 3px solid var(--edge); }
+  .node[data-lane="vps"]      { border-left: 3px solid var(--vps); }
+  .node[data-lane="external"] { border-left: 3px solid var(--external); }
+  .node:hover { border-color: var(--accent); }
+
+  body.flow-active .node { opacity: 0.25; }
+  body.flow-active .node.touched { opacity: 1; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset, 0 6px 22px rgba(122,162,255,0.18); }
+  body.flow-active .node.active { opacity: 1; border-color: var(--hl); box-shadow: 0 0 0 1px var(--hl) inset, 0 6px 22px rgba(255,209,102,0.22); transform: translateY(-1px); }
+
+  svg.arrows { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; overflow: visible; }
+  svg.arrows path { fill: none; stroke: var(--line-strong); stroke-width: 1.5; opacity: 0; transition: opacity 180ms ease, stroke 180ms ease, stroke-width 180ms ease; pointer-events: none; vector-effect: non-scaling-stroke; }
+  svg.arrows path.shown { opacity: 0.55; stroke: var(--accent); }
+  svg.arrows path.active { opacity: 1; stroke: var(--hl); stroke-width: 2.4; stroke-dasharray: 6 4; animation: dash 0.9s linear infinite; }
+  svg.arrows path.self-stub { stroke-width: 1.2; }
+  svg.arrows path.self-stub.shown { opacity: 0.45; }
+  /* Wide invisible hit path layered on top of the visible one so thin strokes
+     are still easy to click. Cursor signals the affordance. */
+  svg.arrows path.hit { stroke: transparent; stroke-width: 14; fill: none; opacity: 1; pointer-events: stroke; cursor: pointer; }
+  svg.arrows path.hit.self { stroke-width: 18; }
+  /* Hover preview on the visible arrow (driven by the hit path's :hover via JS) */
+  svg.arrows path.hover-preview { opacity: 0.9; stroke-width: 2; }
+  @keyframes dash { to { stroke-dashoffset: -20; } }
+
+  /* Step badges floating on the canvas at the midpoint of each arrow */
+  .step-badge {
+    position: absolute; z-index: 3;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); color: #0b1020;
+    font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    transform: translate(-50%, -50%);
+    transition: background 180ms ease, transform 180ms ease;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .step-badge.active { background: var(--hl); transform: translate(-50%, -50%) scale(1.25); }
+  /* Overview / unnumbered: pill with the edge label */
+  .step-badge.pill {
+    width: auto; height: auto; padding: 3px 9px; border-radius: 999px;
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.01em;
+    background: rgba(122,162,255,0.16); color: var(--accent);
+    border: 1px solid rgba(122,162,255,0.35);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+  }
+  .step-badge.pill.active { background: var(--hl); color: #0b1020; border-color: var(--hl); }
+
+  /* Empty state on canvas */
+  .empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: var(--ink-faint); font-size: 14px; pointer-events: none;
+  }
+
+  /* "Overview" button at top of sidebar */
+  .nav-top { padding: 0 14px 8px 14px; border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+  .nav-top button {
+    width: 100%; text-align: left; padding: 9px 12px;
+    background: rgba(122,162,255,0.08); border: 1px solid var(--line-strong); color: var(--ink);
+    border-radius: 7px; cursor: pointer; font-size: 12.5px; font-weight: 500;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .nav-top button:hover { background: rgba(122,162,255,0.18); color: var(--accent); border-color: var(--accent); }
+  .nav-top button.active { background: var(--accent); color: #0b1020; border-color: var(--accent); }
+  .nav-top .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.7; }
+
+  /* Step panel */
+  .step-panel {
+    position: fixed; right: 20px; bottom: 20px; width: 460px; max-height: 70vh;
+    background: rgba(11,16,32,0.96); backdrop-filter: blur(8px);
+    border: 1px solid var(--line-strong); border-radius: 14px;
+    box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+    display: none; flex-direction: column; overflow: hidden;
+    z-index: 10;
+  }
+  .step-panel.shown { display: flex; }
+  .step-panel header.spheader {
+    padding: 14px 16px; border-bottom: 1px solid var(--line);
+    background: none; display: block; height: auto;
+  }
+  .step-panel .ftitle { font-size: 14px; font-weight: 600; margin: 0 0 4px 0; color: var(--ink); }
+  .step-panel .fmeta { font-size: 11.5px; color: var(--ink-dim); }
+  .step-panel .fsummary { font-size: 12.5px; color: var(--ink-dim); margin-top: 8px; line-height: 1.45; }
+  .step-panel .close {
+    position: absolute; right: 12px; top: 12px;
+    background: none; border: 0; color: var(--ink-dim); font-size: 18px; cursor: pointer; line-height: 1;
+  }
+  .step-panel .close:hover { color: var(--ink); }
+  .step-list { overflow-y: auto; padding: 8px 8px 12px 8px; }
+  .step {
+    padding: 10px 12px; margin: 4px 4px; border-radius: 8px; cursor: pointer;
+    border: 1px solid transparent;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .step:hover { background: rgba(122,162,255,0.06); }
+  .step.active { background: rgba(255,209,102,0.08); border-color: rgba(255,209,102,0.4); }
+  .step .row1 { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
+  .step .num { color: var(--hl); font-weight: 700; min-width: 18px; }
+  .step .nodes { color: var(--accent); font-weight: 600; }
+  .step .label { color: var(--ink); font-family: "SF Mono", ui-monospace, monospace; font-size: 11.5px; padding: 1px 6px; background: rgba(122,162,255,0.08); border-radius: 4px; }
+  .step .payload { font-size: 11px; color: var(--ink-dim); margin-top: 6px; font-family: "SF Mono", ui-monospace, monospace; word-break: break-word; }
+  .step .note { font-size: 11.5px; color: var(--ink-dim); margin-top: 4px; line-height: 1.4; }
+  .step .ref { font-size: 10.5px; color: var(--ink-faint); margin-top: 4px; font-family: "SF Mono", ui-monospace, monospace; }
+
+  /* Tooltip */
+  .tip {
+    position: fixed; z-index: 20; max-width: 280px; pointer-events: none;
+    background: rgba(11,16,32,0.97); color: var(--ink);
+    border: 1px solid var(--line-strong); border-radius: 8px; padding: 10px 12px;
+    font-size: 11.5px; line-height: 1.45;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.4);
+    display: none;
+  }
+  .tip.shown { display: block; }
+  .tip .ttitle { font-weight: 600; color: var(--ink); }
+  .tip .tkind { color: var(--accent); font-size: 10.5px; margin-top: 2px; }
+  .tip .tpath { font-family: "SF Mono", ui-monospace, monospace; color: var(--ink-faint); font-size: 10.5px; margin-top: 6px; }
+  .tip .tsum { color: var(--ink-dim); margin-top: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Architecture<span class="dim">· Explorer</span></h1>
+  <div class="meta" id="meta">Loading…</div>
+</header>
+<main>
+  <aside id="sidebar"></aside>
+  <section class="canvas" id="canvasWrap">
+    <div class="zoom-controls" title="Zoom — Cmd/Ctrl + wheel or +/− keys; 0 = fit">
+      <button id="zoomOut" title="Zoom out (−)">−</button>
+      <div class="zoom-level" id="zoomLevel">100%</div>
+      <button id="zoomIn" title="Zoom in (+)">+</button>
+      <button id="zoomFit" title="Fit window (0)">⤢</button>
+    </div>
+    <div class="stage" id="stage">
+      <svg class="arrows" id="arrows"></svg>
+      <div class="empty" id="empty">Pick a flow on the left to see how it travels through the system.</div>
+    </div>
+  </section>
+</main>
+<div class="step-panel" id="panel">
+  <header class="spheader">
+    <button class="close" id="closeBtn" title="Close">×</button>
+    <h2 class="ftitle" id="ftitle"></h2>
+    <div class="fmeta" id="fmeta"></div>
+    <div class="fsummary" id="fsummary"></div>
+  </header>
+  <div class="step-list" id="stepList"></div>
+</div>
+<div class="tip" id="tip"></div>
+<script>
+(async () => {
+  const $ = (s, r=document) => r.querySelector(s);
+  const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+
+  // ───────── Load index data ─────────
+  let components, flowsIndex;
+  try {
+    [components, flowsIndex] = await Promise.all([
+      fetch('components.json').then(r => r.json()),
+      fetch('flows/_index.json').then(r => r.json()),
+    ]);
+  } catch (e) {
+    $('#empty').textContent = 'Failed to load JSON. Did you run ./serve.sh? (' + e.message + ')';
+    return;
+  }
+
+  const compById = new Map(components.components.map(c => [c.id, c]));
+
+  // ───────── Render lane labels + nodes ─────────
+  const stage = $('#stage');
+  const canvasWrap = $('#canvasWrap');
+  const stageDim = components.stage || { width: 1700, height: 820 };
+  stage.style.width = stageDim.width + 'px';
+  stage.style.height = stageDim.height + 'px';
+
+  // Optional title from components.json — lets each project rebrand without
+  // editing this file. Falls back to the default "Architecture · Explorer".
+  if (components.title) {
+    document.title = components.title + ' · Explorer';
+    document.querySelector('header h1').innerHTML =
+      `${esc(components.title)}<span class="dim">· Explorer</span>`;
+  }
+
+  // ───────── Pan + zoom — translate-based so the cursor stays anchored at
+  // every zoom level, not just when the stage overflows the viewport. ─────────
+  const ZOOM_MIN = 0.3, ZOOM_MAX = 2.5;
+  const FIT_PADDING = 48;  // breathing room around the stage at fit zoom
+  let zoom = 1, tx = 0, ty = 0;
+
+  // rAF-batched transform write so multiple wheel events in one frame
+  // produce a single paint — the pattern used by d3-zoom, React Flow, etc.
+  let rafPending = false, animTimer = 0;
+  function scheduleTransform() {
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => {
+      rafPending = false;
+      stage.style.transform = `translate(${tx}px, ${ty}px) scale(${zoom})`;
+      $('#zoomLevel').textContent = Math.round(zoom * 100) + '%';
+    });
+  }
+  function animateNext() {
+    stage.classList.add('animating');
+    clearTimeout(animTimer);
+    animTimer = setTimeout(() => stage.classList.remove('animating'), 160);
+  }
+  function applyZoom(z, pivotClient, smooth) {
+    const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+    if (newZoom === zoom) return;
+    const r = canvasWrap.getBoundingClientRect();
+    const pivot = pivotClient || { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    const px = pivot.x - r.left;
+    const py = pivot.y - r.top;
+    // World point under pivot before zoom:
+    const wx = (px - tx) / zoom;
+    const wy = (py - ty) / zoom;
+    zoom = newZoom;
+    // Keep that world point at the same screen position after zoom:
+    tx = px - wx * zoom;
+    ty = py - wy * zoom;
+    if (smooth) animateNext();
+    scheduleTransform();
+  }
+  function fitZoom() {
+    const w = canvasWrap.clientWidth, h = canvasWrap.clientHeight;
+    zoom = Math.min(1,
+      (w - FIT_PADDING * 2) / stageDim.width,
+      (h - FIT_PADDING * 2) / stageDim.height
+    );
+    tx = (w - stageDim.width * zoom) / 2;
+    ty = (h - stageDim.height * zoom) / 2;
+    animateNext();
+    scheduleTransform();
+  }
+
+  canvasWrap.addEventListener('wheel', (e) => {
+    if (e.ctrlKey || e.metaKey) {
+      // Trackpad pinch fires ctrlKey; Cmd+wheel works for traditional mice.
+      // Lower coefficient + clamped delta makes pinch and mouse-wheel feel
+      // proportional (raw mouse-wheel deltaY can be 100+; pinch is ~1-10).
+      e.preventDefault();
+      const delta = Math.max(-50, Math.min(50, e.deltaY));
+      const factor = Math.exp(-delta * 0.01);
+      applyZoom(zoom * factor, { x: e.clientX, y: e.clientY });
+    } else {
+      // Plain scroll → pan. macOS two-finger swipe sends deltaX too.
+      e.preventDefault();
+      tx -= e.deltaX;
+      ty -= e.deltaY;
+      scheduleTransform();
+    }
+  }, { passive: false });
+
+  $('#zoomIn').addEventListener('click', () => applyZoom(zoom * 1.15, null, true));
+  $('#zoomOut').addEventListener('click', () => applyZoom(zoom / 1.15, null, true));
+  $('#zoomFit').addEventListener('click', () => fitZoom());
+
+  // ───────── Pan (drag empty canvas · middle-mouse anywhere · Space-hold) ─────────
+  let spaceHeld = false;
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && !e.repeat) {
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      spaceHeld = true;
+      canvasWrap.classList.add('space-held');
+      e.preventDefault();
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'Space') { spaceHeld = false; canvasWrap.classList.remove('space-held'); }
+  });
+
+  canvasWrap.addEventListener('mousedown', (e) => {
+    const t = e.target;
+    if (t.closest('.zoom-controls')) return;  // never hijack the zoom buttons
+    const onInteractive =
+      t.closest('.node, .step-badge') ||
+      (t.tagName === 'path' && t.classList.contains('hit'));
+    // Pan triggers: middle button (any target) · Space+left (any target) · left-button on empty area
+    const isMiddle = e.button === 1;
+    const isLeft = e.button === 0;
+    const wantPan = isMiddle || (isLeft && spaceHeld) || (isLeft && !onInteractive);
+    if (!wantPan) return;
+    e.preventDefault();
+    const startX = e.clientX, startY = e.clientY;
+    const startTx = tx, startTy = ty;
+    let moved = false;
+    canvasWrap.classList.add('panning');
+    function onMove(ev) {
+      moved = moved || Math.hypot(ev.clientX - startX, ev.clientY - startY) > 2;
+      tx = startTx + (ev.clientX - startX);
+      ty = startTy + (ev.clientY - startY);
+      scheduleTransform();
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      canvasWrap.classList.remove('panning');
+      // Swallow the click that follows a drag so a pan doesn't also cycle a node.
+      if (moved) {
+        const swallow = (ev) => { ev.stopPropagation(); ev.preventDefault(); window.removeEventListener('click', swallow, true); };
+        window.addEventListener('click', swallow, true);
+      }
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+  // Suppress the browser's "auto-scroll" menu on middle-click.
+  canvasWrap.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
+  components.lanes.forEach(l => {
+    const lab = document.createElement('div');
+    lab.className = 'lane-label';
+    lab.textContent = l.label;
+    lab.style.top = (l.y - 22) + 'px';
+    stage.appendChild(lab);
+  });
+
+  components.components.forEach(c => {
+    const el = document.createElement('div');
+    el.className = 'node';
+    el.dataset.id = c.id;
+    el.dataset.lane = c.lane;
+    el.style.left = c.x + 'px';
+    el.style.top = c.y + 'px';
+    el.innerHTML = `<div class="lbl"></div><div class="kind"></div>`;
+    el.querySelector('.lbl').textContent = c.label;
+    el.querySelector('.kind').textContent = c.kind;
+    el.addEventListener('mouseenter', (e) => showTip(c, e));
+    el.addEventListener('mousemove', moveTip);
+    el.addEventListener('mouseleave', hideTip);
+    el.addEventListener('click', () => cycleNodeSteps(c.id));
+    el.style.cursor = 'pointer';
+    stage.appendChild(el);
+  });
+
+  // Tap a node → walk through its adjacent steps in journey order.
+  // 1st tap on N: 1st hop touching N · 2nd tap: 2nd hop · … · wraps.
+  // Switching to a different node resets the cycle so the first tap on the
+  // new node always starts at its 1st hop, never skips ahead.
+  function cycleNodeSteps(nodeId) {
+    if (!currentFlow) return;
+    const adjacent = [];
+    currentFlow.steps.forEach((s, i) => {
+      if (s.from === nodeId || s.to === nodeId) adjacent.push(i);
+    });
+    if (adjacent.length === 0) return;
+    const pos = nodeCycle.nodeId === nodeId
+      ? (nodeCycle.pos + 1) % adjacent.length
+      : 0;
+    nodeCycle = { nodeId, pos };
+    setActiveStep(adjacent[pos]);
+  }
+
+  function showTip(c, e) {
+    const t = $('#tip');
+    t.innerHTML = `
+      <div class="ttitle">${esc(c.label)}</div>
+      <div class="tkind">${esc(c.kind)}</div>
+      <div class="tsum">${esc(c.summary || '')}</div>
+      <div class="tpath">${esc(c.path || '')}</div>
+    `;
+    t.classList.add('shown');
+    moveTip(e);
+  }
+  function moveTip(e) {
+    const t = $('#tip');
+    const pad = 14;
+    let x = e.clientX + pad, y = e.clientY + pad;
+    const rect = t.getBoundingClientRect();
+    if (x + rect.width > window.innerWidth)  x = e.clientX - rect.width - pad;
+    if (y + rect.height > window.innerHeight) y = e.clientY - rect.height - pad;
+    t.style.left = x + 'px'; t.style.top = y + 'px';
+  }
+  function hideTip() { $('#tip').classList.remove('shown'); }
+
+  // ───────── Sidebar ─────────
+  const sidebar = $('#sidebar');
+  // Overview button at top of sidebar
+  const navTop = document.createElement('div');
+  navTop.className = 'nav-top';
+  const overviewBtn = document.createElement('button');
+  overviewBtn.id = 'overviewBtn';
+  overviewBtn.innerHTML = '<span class="dot"></span>Overview · the big picture';
+  overviewBtn.addEventListener('click', () => loadFlow('overview', overviewBtn));
+  navTop.appendChild(overviewBtn);
+  sidebar.appendChild(navTop);
+  let totalFlowCount = 0, presentFlowCount = 0;
+  for (const cat of flowsIndex.categories) {
+    const catEl = document.createElement('div');
+    catEl.className = 'cat';
+    const head = document.createElement('div');
+    head.className = 'cat-head';
+    head.innerHTML = `<span class="caret">▼</span><span>${esc(cat.label)}</span>`;
+    head.addEventListener('click', () => catEl.classList.toggle('collapsed'));
+    catEl.appendChild(head);
+    const list = document.createElement('div');
+    list.className = 'flows';
+    for (const flowId of cat.flows) {
+      totalFlowCount++;
+      const btn = document.createElement('button');
+      btn.className = 'flow';
+      btn.dataset.id = flowId;
+      btn.textContent = humanize(flowId);
+      btn.addEventListener('click', () => loadFlow(flowId, btn));
+      list.appendChild(btn);
+    }
+    catEl.appendChild(list);
+    sidebar.appendChild(catEl);
+  }
+
+  // Probe which flow files exist (HEAD requests are cheap; tag the rest as missing)
+  await Promise.all($$('.flow').map(async (btn) => {
+    const id = btn.dataset.id;
+    try {
+      const r = await fetch('flows/' + id + '.json', { method: 'HEAD' });
+      if (!r.ok) btn.classList.add('missing');
+      else presentFlowCount++;
+    } catch { btn.classList.add('missing'); }
+  }));
+  $('#meta').textContent = `${presentFlowCount} / ${totalFlowCount} flows mapped · ${components.components.length} components`;
+
+  // ───────── Load + render a flow ─────────
+  let currentFlow = null;
+  let activeStepIdx = null;
+  let placedBadges = [];  // bboxes of already-rendered badges for the current flow
+  let nodeCycle = { nodeId: null, pos: -1 };  // node-tap cycle state
+
+  async function loadFlow(id, btnEl) {
+    if (btnEl && btnEl.classList.contains('missing')) return;
+    $$('.flow').forEach(b => b.classList.toggle('active', b.dataset.id === id));
+    overviewBtn.classList.toggle('active', id === 'overview');
+    let flow;
+    try {
+      flow = await fetch('flows/' + id + '.json').then(r => {
+        if (!r.ok) throw new Error('not found');
+        return r.json();
+      });
+    } catch (e) {
+      $('#empty').textContent = `Flow "${id}" not yet documented.`;
+      clearFlow();
+      return;
+    }
+    currentFlow = flow;
+    renderFlow(flow);
+  }
+
+  function clearFlow() {
+    document.body.classList.remove('flow-active');
+    $$('.node').forEach(n => n.classList.remove('touched', 'active'));
+    $('#arrows').innerHTML = '';
+    $$('.step-badge').forEach(b => b.remove());
+    $('#panel').classList.remove('shown');
+    currentFlow = null; activeStepIdx = null;
+  }
+
+  function renderFlow(flow) {
+    document.body.classList.add('flow-active');
+    $('#empty').style.display = 'none';
+
+    // Mark touched components
+    const touched = new Set();
+    flow.steps.forEach(s => { touched.add(s.from); touched.add(s.to); });
+    $$('.node').forEach(n => {
+      n.classList.toggle('touched', touched.has(n.dataset.id));
+      n.classList.remove('active');
+    });
+
+    // Draw arrows
+    const svg = $('#arrows');
+    svg.innerHTML = '';
+    $$('.step-badge').forEach(b => b.remove());
+    const slotInfo = computeSlots(flow.steps);
+    const unnumbered = !!flow.unnumbered;
+    placedBadges = [];
+    flow.steps.forEach((step, i) => drawStep(step, i, slotInfo[i], unnumbered));
+
+    // Panel
+    $('#ftitle').textContent = flow.title || flow.id;
+    $('#fmeta').textContent = (flow.actor ? '👤 ' + flow.actor : '') + (flow.category ? '  ·  ' + flow.category : '');
+    $('#fsummary').textContent = flow.summary || '';
+    const list = $('#stepList');
+    list.innerHTML = '';
+    flow.steps.forEach((s, i) => {
+      const el = document.createElement('div');
+      el.className = 'step'; el.dataset.idx = i;
+      el.innerHTML = `
+        <div class="row1">
+          <span class="num">${i+1}</span>
+          <span class="nodes">${esc(labelOf(s.from))} → ${esc(labelOf(s.to))}</span>
+          ${s.label ? `<span class="label">${esc(s.label)}</span>` : ''}
+        </div>
+        ${s.payload ? `<div class="payload">${esc(s.payload)}</div>` : ''}
+        ${s.note ? `<div class="note">${esc(s.note)}</div>` : ''}
+        ${s.ref ? `<div class="ref">${esc(s.ref)}</div>` : ''}
+      `;
+      el.addEventListener('click', () => setActiveStep(i));
+      el.addEventListener('mouseenter', () => setActiveStep(i, true));
+      list.appendChild(el);
+    });
+    $('#panel').classList.add('shown');
+    // For overview-style flows, don't auto-highlight the first arrow — every
+    // arrow is a peer relationship, not an ordered hop.
+    if (!unnumbered) setActiveStep(0);
+    else activeStepIdx = null;
+  }
+
+  function labelOf(id) { return (compById.get(id) || {label: id}).label; }
+
+  function setActiveStep(idx, hover=false) {
+    activeStepIdx = idx;
+    $$('#stepList .step').forEach((el, i) => el.classList.toggle('active', i === idx));
+    if (!hover) {
+      $$('#stepList .step')[idx]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+    // Arrows + badges (exclude .hit paths — they're transparent click targets)
+    $$('#arrows path:not(.hit)').forEach((p) => p.classList.toggle('active', Number(p.dataset.idx) === idx));
+    $$('.step-badge').forEach((b) => b.classList.toggle('active', Number(b.dataset.idx) === idx));
+    // Endpoints highlighted
+    const s = currentFlow.steps[idx];
+    $$('.node').forEach(n => n.classList.toggle('active', n.dataset.id === s.from || n.dataset.id === s.to));
+  }
+
+  // ───────── Arrow drawing ─────────
+
+  // Pre-compute per-step slot info so multiple arrows between the same nodes
+  // (and self-loops within a node) fan out instead of overlapping.
+  function computeSlots(steps) {
+    const orderedGroups = new Map(); // "from→to" → array of step indices
+    const selfGroups = new Map();    // node id → array of step indices
+    steps.forEach((s, i) => {
+      if (s.from === s.to) {
+        const arr = selfGroups.get(s.from) || [];
+        arr.push(i); selfGroups.set(s.from, arr);
+      } else {
+        const k = s.from + '→' + s.to;
+        const arr = orderedGroups.get(k) || [];
+        arr.push(i); orderedGroups.set(k, arr);
+      }
+    });
+    return steps.map((s, i) => {
+      if (s.from === s.to) {
+        const g = selfGroups.get(s.from);
+        return { kind: 'self', slot: g.indexOf(i), total: g.length };
+      }
+      const g = orderedGroups.get(s.from + '→' + s.to);
+      return { kind: 'arrow', slot: g.indexOf(i), total: g.length };
+    });
+  }
+
+  function drawStep(step, i, slot, unnumbered) {
+    const fromC = compById.get(step.from);
+    const toC = compById.get(step.to);
+    if (!fromC || !toC) {
+      console.warn('Step references unknown component:', step);
+      return;
+    }
+    if (slot.kind === 'self') drawSelfStep(fromC, i, slot.slot, slot.total, unnumbered ? step.label : null);
+    else drawArrowStep(step, fromC, toC, i, slot.slot, slot.total, unnumbered ? step.label : null);
+  }
+
+  function drawArrowStep(step, fromC, toC, i, slot, total, pillLabel) {
+    const from = anchorOf(fromC);
+    const to = anchorOf(toC);
+
+    // Canonical perpendicular: same for A→B and B→A so reciprocal arrows can
+    // be placed on opposite sides via the canon sign below.
+    const canon = step.from < step.to ? 1 : -1;
+    const lo = canon === 1 ? fromC : toC;
+    const hi = canon === 1 ? toC : fromC;
+    const cdx = (hi.x + 75) - (lo.x + 75);
+    const cdy = (hi.y + 28) - (lo.y + 28);
+    const clen = Math.hypot(cdx, cdy) || 1;
+    const cpX = -cdy / clen, cpY = cdx / clen;
+
+    // Fan parallel arrows (same direction) + push reciprocals apart.
+    const within = (slot - (total - 1) / 2) * 22;
+    const baseSep = 18;
+    const off = within + canon * baseSep;
+
+    const mx = (from.x + to.x) / 2;
+    const my = (from.y + to.y) / 2;
+    const cx = mx + cpX * off;
+    const cy = my + cpY * off;
+
+    const d = `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    path.classList.add('shown');
+    path.dataset.idx = i;
+    $('#arrows').appendChild(path);
+    addHitPath(d, i, false);
+
+    // Create the badge hidden so we can measure its real size, then search
+    // along the curve for a t-value where it neither overlaps a non-endpoint
+    // node nor a previously-placed badge.
+    const badge = createBadgeEl(i, pillLabel);
+    const halfDim = { w: badge.offsetWidth / 2, h: badge.offsetHeight / 2 };
+    const ts = [0.5, 0.42, 0.58, 0.36, 0.64, 0.30, 0.70, 0.25, 0.75, 0.2, 0.8, 0.15, 0.85];
+    let bx, by;
+    for (const t of ts) {
+      const u = 1 - t;
+      const px = u * u * from.x + 2 * u * t * cx + t * t * to.x;
+      const py = u * u * from.y + 2 * u * t * cy + t * t * to.y;
+      if (!hitsOtherNode(px, py, halfDim, step.from, step.to) &&
+          !hitsPlacedBadge(px, py, halfDim)) {
+        bx = px; by = py; break;
+      }
+    }
+    if (bx === undefined) {
+      bx = (from.x + 2 * cx + to.x) / 4;
+      by = (from.y + 2 * cy + to.y) / 4;
+    }
+    placedBadges.push({ x: bx, y: by, halfW: halfDim.w, halfH: halfDim.h });
+    revealBadge(badge, bx, by);
+  }
+
+  function hitsOtherNode(x, y, half, fromId, toId) {
+    // Avoid every node — including the badge's own from/to — so the label
+    // text inside a node box is never obscured by an annotation.
+    const pad = 6;
+    for (const c of components.components) {
+      if (x >= c.x - half.w - pad &&
+          x <= c.x + 150 + half.w + pad &&
+          y >= c.y - half.h - pad &&
+          y <= c.y + 56 + half.h + pad) return true;
+    }
+    return false;
+  }
+  function hitsPlacedBadge(x, y, half) {
+    const pad = 4;
+    for (const b of placedBadges) {
+      const minDx = b.halfW + half.w + pad;
+      const minDy = b.halfH + half.h + pad;
+      if (Math.abs(b.x - x) < minDx && Math.abs(b.y - y) < minDy) return true;
+    }
+    return false;
+  }
+
+  // Self-loops fan as a row of badges above the node, each connected by a
+  // thin vertical stub. Compact enough not to crash neighbouring lanes.
+  function drawSelfStep(c, i, slot, total, pillLabel) {
+    const cxNode = c.x + 75;
+    const dx = (slot - (total - 1) / 2) * 30;
+    const bx = cxNode + dx;
+    const by = c.y - 24;
+    const d = `M ${bx} ${c.y} L ${bx} ${by + 11}`;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    path.classList.add('shown', 'self-stub');
+    path.dataset.idx = i;
+    $('#arrows').appendChild(path);
+    addHitPath(d, i, true);
+    const badge = createBadgeEl(i, pillLabel);
+    const halfDim = { w: badge.offsetWidth / 2, h: badge.offsetHeight / 2 };
+    placedBadges.push({ x: bx, y: by, halfW: halfDim.w, halfH: halfDim.h });
+    revealBadge(badge, bx, by);
+  }
+
+  // Invisible wide hit path so clicks register on thin connectors.
+  function addHitPath(d, i, isSelf) {
+    const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    hit.setAttribute('d', d);
+    hit.classList.add('hit');
+    if (isSelf) hit.classList.add('self');
+    hit.dataset.idx = i;
+    hit.addEventListener('click', () => setActiveStep(i));
+    hit.addEventListener('mouseenter', () => setActiveStep(i, true));
+    $('#arrows').appendChild(hit);
+  }
+
+  function createBadgeEl(i, pillLabel) {
+    const badge = document.createElement('div');
+    badge.className = 'step-badge' + (pillLabel ? ' pill' : '');
+    badge.dataset.idx = i;
+    badge.textContent = pillLabel ?? (i + 1);
+    // Position offscreen so the browser lays it out for measurement.
+    badge.style.visibility = 'hidden';
+    badge.style.left = '-9999px'; badge.style.top = '0px';
+    badge.addEventListener('click', () => setActiveStep(i));
+    badge.addEventListener('mouseenter', () => setActiveStep(i, true));
+    stage.appendChild(badge);
+    return badge;
+  }
+  function revealBadge(badge, x, y) {
+    badge.style.left = x + 'px';
+    badge.style.top = y + 'px';
+    badge.style.visibility = '';
+  }
+
+  function anchorOf(c) {
+    return { x: c.x + 75, y: c.y + 28 };
+  }
+
+  // ───────── Misc ─────────
+  $('#closeBtn').addEventListener('click', () => { clearFlow(); $('#empty').style.display = 'flex'; $$('.flow').forEach(b => b.classList.remove('active')); });
+
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); applyZoom(zoom * 1.15); return; }
+    if (e.key === '-' || e.key === '_') { e.preventDefault(); applyZoom(zoom / 1.15); return; }
+    if (e.key === '0') { e.preventDefault(); fitZoom(); return; }
+    if (!currentFlow) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); setActiveStep(Math.min(currentFlow.steps.length-1, (activeStepIdx ?? -1) + 1)); }
+    if (e.key === 'ArrowUp' || e.key === 'ArrowLeft')   { e.preventDefault(); setActiveStep(Math.max(0, (activeStepIdx ?? 1) - 1)); }
+    if (e.key === 'Escape') clearFlow();
+  });
+
+  function humanize(id) { return id.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+  function esc(s) { return String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+
+  // First paint: fit-to-window and auto-load the high-level overview.
+  fitZoom();
+  await loadFlow('overview', overviewBtn);
+})();
+</script>
+</body>
+</html>

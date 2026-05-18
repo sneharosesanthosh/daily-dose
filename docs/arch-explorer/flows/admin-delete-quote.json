@@ -1,0 +1,56 @@
+{
+  "id": "admin-delete-quote",
+  "title": "Admin deletes a quote",
+  "category": "Admin CRUD",
+  "actor": "Admin (signed in)",
+  "summary": "From the /admin list, the admin clicks the row's Delete button (a client component with a confirm() dialog). The id is bound into a deleteQuote Server Action declared on the admin page itself. After delete, both / and /admin are revalidated and the list re-renders without the row.",
+  "steps": [
+    {
+      "from": "admin",
+      "to": "admin-list",
+      "label": "click Delete",
+      "note": "DeleteButton is a client component — confirm() runs in the browser first.",
+      "ref": "app/admin/DeleteButton.js"
+    },
+    {
+      "from": "admin-list",
+      "to": "admin-list",
+      "label": "deleteQuote.bind(null, quote.id)",
+      "note": "Per-row bound action — the id is fixed at render time, not posted by the client.",
+      "ref": "app/admin/page.js:97"
+    },
+    {
+      "from": "admin-list",
+      "to": "admin-list",
+      "label": "Number.isInteger(id) guard",
+      "note": "Cheap sanity check on the bound id before touching the DB.",
+      "ref": "app/admin/page.js:18"
+    },
+    {
+      "from": "admin-list",
+      "to": "prisma",
+      "label": "quote.delete({ where: { id } })",
+      "ref": "app/admin/page.js:19"
+    },
+    {
+      "from": "prisma",
+      "to": "neon",
+      "label": "DELETE FROM Quote WHERE id = ?",
+      "ref": "lib/prisma.js:5"
+    },
+    {
+      "from": "admin-list",
+      "to": "admin-list",
+      "label": "revalidatePath('/admin'), revalidatePath('/')",
+      "note": "Both the admin list and the home category pills get refreshed — if it was the last quote in a category the pill disappears.",
+      "ref": "app/admin/page.js:20"
+    },
+    {
+      "from": "admin-list",
+      "to": "admin",
+      "label": "re-render list",
+      "note": "Server Action returns; the page re-renders without the row.",
+      "ref": "app/admin/page.js:75"
+    }
+  ]
+}

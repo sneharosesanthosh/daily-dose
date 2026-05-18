@@ -1,0 +1,37 @@
+{
+  "id": "admin-logout",
+  "title": "Admin signs out",
+  "category": "Admin auth",
+  "actor": "Admin",
+  "summary": "Admin clicks 'Sign out' in the /admin nav. A POST form submits to /logout, which deletes the admin_session cookie and 303-redirects to /. POST (not GET) is intentional — it stops Next.js Link prefetch from accidentally logging the admin out.",
+  "steps": [
+    {
+      "from": "admin",
+      "to": "admin-list",
+      "label": "click Sign out",
+      "note": "<form action=\"/logout\" method=\"POST\"> wraps the button in the admin nav.",
+      "ref": "app/admin/page.js:41"
+    },
+    {
+      "from": "admin-list",
+      "to": "logout",
+      "label": "POST /logout",
+      "note": "Browser submits the form to the POST route handler.",
+      "ref": "app/logout/route.js:4"
+    },
+    {
+      "from": "logout",
+      "to": "logout",
+      "label": "cookieStore.delete('admin_session')",
+      "note": "Removes the auth cookie.",
+      "ref": "app/logout/route.js:6"
+    },
+    {
+      "from": "logout",
+      "to": "admin",
+      "label": "303 → /",
+      "note": "303 forces a GET on the redirect, which is the right pattern after a POST.",
+      "ref": "app/logout/route.js:7"
+    }
+  ]
+}

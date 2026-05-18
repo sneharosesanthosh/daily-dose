@@ -1,0 +1,113 @@
+{
+  "id": "visitor-generate-quote",
+  "title": "Visitor generates a random quote",
+  "category": "Visitor",
+  "actor": "Anonymous visitor",
+  "summary": "Visitor lands on /, picks a category (or 'all'), and clicks Generate. The page fetches /api/random-quote, which counts matching rows and picks one at a random offset. The previous quote id is sent as exclude so you never see the same quote twice in a row.",
+  "steps": [
+    {
+      "from": "visitor",
+      "to": "home",
+      "label": "GET /",
+      "note": "Visitor opens the landing page.",
+      "ref": "app/page.js:5"
+    },
+    {
+      "from": "home",
+      "to": "prisma",
+      "label": "findMany({ distinct: ['category'] })",
+      "payload": "select: { category: true }, orderBy: { category: 'asc' }",
+      "note": "Server Component fetches the category list for the pill bar.",
+      "ref": "app/page.js:9"
+    },
+    {
+      "from": "prisma",
+      "to": "neon",
+      "label": "SELECT DISTINCT category",
+      "note": "Query goes out over the Neon WebSocket adapter.",
+      "ref": "lib/prisma.js:5"
+    },
+    {
+      "from": "neon",
+      "to": "prisma",
+      "label": "rows",
+      "payload": "['courage', 'motivation', ...]",
+      "note": "Distinct category strings.",
+      "ref": "lib/prisma.js:5"
+    },
+    {
+      "from": "prisma",
+      "to": "home",
+      "label": "categories[]",
+      "note": "Mapped to a flat string array.",
+      "ref": "app/page.js:14"
+    },
+    {
+      "from": "home",
+      "to": "quote-generator",
+      "label": "<QuoteGenerator categories={...}>",
+      "note": "Server-rendered HTML hydrates into a client component in the browser.",
+      "ref": "app/page.js:34"
+    },
+    {
+      "from": "quote-generator",
+      "to": "quote-generator",
+      "label": "click Generate",
+      "note": "User picks a category pill (or stays on 'all') and clicks the button.",
+      "ref": "app/QuoteGenerator.js:75"
+    },
+    {
+      "from": "quote-generator",
+      "to": "random-quote-api",
+      "label": "GET /api/random-quote",
+      "payload": "?category=courage&exclude=42",
+      "note": "Sends the active category and the previous quote id so it isn't picked again.",
+      "ref": "app/QuoteGenerator.js:27"
+    },
+    {
+      "from": "random-quote-api",
+      "to": "prisma",
+      "label": "quote.count(where)",
+      "payload": "{ category, id: { not: excludeId } }",
+      "note": "Counts matching rows to compute a random offset.",
+      "ref": "app/api/random-quote/route.js:15"
+    },
+    {
+      "from": "random-quote-api",
+      "to": "prisma",
+      "label": "quote.findMany({ skip, take: 1 })",
+      "payload": "skip = floor(random() * count)",
+      "note": "Cheap random pick for small libraries — fine here.",
+      "ref": "app/api/random-quote/route.js:19"
+    },
+    {
+      "from": "prisma",
+      "to": "neon",
+      "label": "SELECT … OFFSET ? LIMIT 1",
+      "note": "Two trips: one for count, one for the random row.",
+      "ref": "lib/prisma.js:5"
+    },
+    {
+      "from": "random-quote-api",
+      "to": "quote-generator",
+      "label": "JSON quote",
+      "payload": "{ id, text, author, source, category }",
+      "note": "Returns null if no matches — the UI shows an empty-state.",
+      "ref": "app/api/random-quote/route.js:22"
+    },
+    {
+      "from": "quote-generator",
+      "to": "quote-generator",
+      "label": "setQuote + bump key",
+      "note": "Incrementing quoteKey re-mounts the article so the quote-appear animation re-runs.",
+      "ref": "app/QuoteGenerator.js:33"
+    },
+    {
+      "from": "quote-generator",
+      "to": "visitor",
+      "label": "fade in",
+      "note": "CSS quote-appear keyframes render the new quote.",
+      "ref": "app/globals.css"
+    }
+  ]
+}

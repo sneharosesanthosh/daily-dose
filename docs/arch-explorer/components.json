@@ -1,0 +1,189 @@
+{
+  "title": "Daily Dose · Architecture",
+  "stage": { "width": 1700, "height": 820 },
+  "lanes": [
+    { "id": "users",  "label": "Users",                    "y": 70 },
+    { "id": "edge",   "label": "Edge auth gate (Vercel)",  "y": 200 },
+    { "id": "public", "label": "Public pages",             "y": 330 },
+    { "id": "admin",  "label": "Admin pages",              "y": 460 },
+    { "id": "api",    "label": "API + ORM",                "y": 590 },
+    { "id": "infra",  "label": "Data + Infra",             "y": 720 }
+  ],
+  "components": [
+    {
+      "id": "developer",
+      "label": "Developer",
+      "lane": "users",
+      "kind": "Human actor",
+      "path": "—",
+      "x": 200,
+      "y": 70,
+      "summary": "Engineer who ships code via PRs. Pushes branches, opens PRs, merges after CI passes."
+    },
+    {
+      "id": "visitor",
+      "label": "Visitor",
+      "lane": "users",
+      "kind": "Human actor (anonymous)",
+      "path": "—",
+      "x": 700,
+      "y": 70,
+      "summary": "Anonymous reader who picks a category and clicks Generate to read a random quote."
+    },
+    {
+      "id": "admin",
+      "label": "Admin",
+      "lane": "users",
+      "kind": "Human actor (password)",
+      "path": "—",
+      "x": 1200,
+      "y": 70,
+      "summary": "Signed-in operator managing the quote library. Holds an admin_session cookie."
+    },
+
+    {
+      "id": "proxy",
+      "label": "proxy.js",
+      "lane": "edge",
+      "kind": "Edge middleware (Next.js 16)",
+      "path": "proxy.js",
+      "x": 1200,
+      "y": 200,
+      "summary": "Edge auth gate. Runs before any rendering on /admin/* — checks the admin_session cookie, redirects to /login if missing."
+    },
+
+    {
+      "id": "home",
+      "label": "/ (Home)",
+      "lane": "public",
+      "kind": "Server Component",
+      "path": "app/page.js",
+      "x": 400,
+      "y": 330,
+      "summary": "Renders the landing page. Fetches DISTINCT categories from Postgres and hands them to QuoteGenerator."
+    },
+    {
+      "id": "quote-generator",
+      "label": "QuoteGenerator",
+      "lane": "public",
+      "kind": "Client Component",
+      "path": "app/QuoteGenerator.js",
+      "x": 600,
+      "y": 330,
+      "summary": "Browser-side UI. Tracks active category, fetches /api/random-quote on click, fades in the result."
+    },
+    {
+      "id": "login",
+      "label": "/login",
+      "lane": "public",
+      "kind": "Server Component + Action",
+      "path": "app/login/page.js",
+      "x": 900,
+      "y": 330,
+      "summary": "Password form. Server Action verifies ADMIN_PASSWORD and sets the httpOnly admin_session cookie."
+    },
+    {
+      "id": "logout",
+      "label": "/logout",
+      "lane": "public",
+      "kind": "POST Route Handler",
+      "path": "app/logout/route.js",
+      "x": 1100,
+      "y": 330,
+      "summary": "Deletes the admin_session cookie and 303-redirects to /. POST-only so Link prefetch can't trigger it."
+    },
+
+    {
+      "id": "admin-list",
+      "label": "/admin",
+      "lane": "admin",
+      "kind": "Server Component + Action",
+      "path": "app/admin/page.js",
+      "x": 900,
+      "y": 460,
+      "summary": "Quote list view. requireAdmin() gate, lists all quotes, hosts the deleteQuote Server Action."
+    },
+    {
+      "id": "admin-add",
+      "label": "/admin/add",
+      "lane": "admin",
+      "kind": "Server Component + Action",
+      "path": "app/admin/add/page.js",
+      "x": 1100,
+      "y": 460,
+      "summary": "Add-quote form. Server Action validates text+category, inserts via Prisma, revalidates / and /admin."
+    },
+    {
+      "id": "admin-edit",
+      "label": "/admin/edit/[id]",
+      "lane": "admin",
+      "kind": "Server Component + Action",
+      "path": "app/admin/edit/[id]/page.js",
+      "x": 1300,
+      "y": 460,
+      "summary": "Edit-quote form. Loads the existing quote, Server Action updates it, revalidates / and /admin."
+    },
+
+    {
+      "id": "random-quote-api",
+      "label": "/api/random-quote",
+      "lane": "api",
+      "kind": "GET Route Handler",
+      "path": "app/api/random-quote/route.js",
+      "x": 500,
+      "y": 590,
+      "summary": "Returns one random quote. Counts matching rows, picks a random OFFSET, optionally excludes the previous id."
+    },
+    {
+      "id": "prisma",
+      "label": "Prisma client",
+      "lane": "api",
+      "kind": "ORM singleton + Neon adapter",
+      "path": "lib/prisma.js",
+      "x": 1100,
+      "y": 590,
+      "summary": "Shared PrismaClient wired to Neon via @prisma/adapter-neon. Cached on globalThis in dev to survive HMR."
+    },
+
+    {
+      "id": "neon",
+      "label": "Neon Postgres",
+      "lane": "infra",
+      "kind": "Serverless Postgres (WebSocket)",
+      "path": "https://neon.tech",
+      "x": 900,
+      "y": 720,
+      "summary": "Hosted Postgres. Single Quote table (id, text, author?, source?, category, timestamps). Hibernates when idle."
+    },
+    {
+      "id": "github",
+      "label": "GitHub repo",
+      "lane": "infra",
+      "kind": "Source of truth + branch protection",
+      "path": "https://github.com",
+      "x": 200,
+      "y": 720,
+      "summary": "Hosts the code and enforces branch protection on main. Direct pushes blocked; PRs require green CI."
+    },
+    {
+      "id": "github-actions",
+      "label": "GitHub Actions",
+      "lane": "infra",
+      "kind": "CI workflow (lint + build)",
+      "path": ".github/workflows/ci.yml",
+      "x": 400,
+      "y": 720,
+      "summary": "Runs npm ci, npm run lint, npm run build on every PR and on push to main. Green check is required to merge."
+    },
+    {
+      "id": "vercel",
+      "label": "Vercel",
+      "lane": "infra",
+      "kind": "Hosting + CD",
+      "path": "https://vercel.com",
+      "x": 1400,
+      "y": 720,
+      "summary": "Builds and deploys atomically on every push to main. Serves the edge proxy and the Next.js app."
+    }
+  ]
+}

@@ -1,0 +1,166 @@
+{
+  "id": "overview",
+  "title": "System overview",
+  "category": "Overview",
+  "actor": "All actors",
+  "summary": "The big picture: who talks to what. Visitors read quotes; admins manage the library behind an edge auth gate; developers ship through a PR → CI → merge → Vercel pipeline.",
+  "unnumbered": true,
+  "steps": [
+    {
+      "from": "visitor",
+      "to": "home",
+      "label": "Browse",
+      "note": "Anonymous visitor loads the landing page.",
+      "ref": "app/page.js:5"
+    },
+    {
+      "from": "home",
+      "to": "quote-generator",
+      "label": "Hydrate",
+      "note": "Server Component passes categories prop to the client component.",
+      "ref": "app/page.js:34"
+    },
+    {
+      "from": "quote-generator",
+      "to": "random-quote-api",
+      "label": "Generate",
+      "note": "Client click → fetch a random quote.",
+      "ref": "app/QuoteGenerator.js:27"
+    },
+    {
+      "from": "home",
+      "to": "prisma",
+      "label": "List categories",
+      "note": "Distinct categories for the pill bar.",
+      "ref": "app/page.js:9"
+    },
+    {
+      "from": "random-quote-api",
+      "to": "prisma",
+      "label": "Random pick",
+      "note": "Count + offset select for a random row.",
+      "ref": "app/api/random-quote/route.js:15"
+    },
+    {
+      "from": "prisma",
+      "to": "neon",
+      "label": "SQL (WebSocket)",
+      "note": "All queries flow through the Neon serverless adapter.",
+      "ref": "lib/prisma.js:5"
+    },
+
+    {
+      "from": "admin",
+      "to": "login",
+      "label": "Sign in",
+      "note": "Admin submits the password form.",
+      "ref": "app/login/page.js:5"
+    },
+    {
+      "from": "login",
+      "to": "admin",
+      "label": "Set cookie",
+      "note": "Server Action sets httpOnly admin_session=1 and redirects to /admin.",
+      "ref": "app/login/page.js:10"
+    },
+    {
+      "from": "admin",
+      "to": "proxy",
+      "label": "Visit /admin/*",
+      "note": "Every admin request hits the edge gate first.",
+      "ref": "proxy.js:12"
+    },
+    {
+      "from": "proxy",
+      "to": "login",
+      "label": "Redirect if no cookie",
+      "note": "Unauthenticated visitors are bounced to /login.",
+      "ref": "proxy.js:5"
+    },
+    {
+      "from": "proxy",
+      "to": "admin-list",
+      "label": "Forward if cookie ok",
+      "note": "Returning nothing from proxy() lets the request pass through.",
+      "ref": "proxy.js:3"
+    },
+    {
+      "from": "admin-list",
+      "to": "admin-add",
+      "label": "Add",
+      "note": "Link from the list view.",
+      "ref": "app/admin/page.js:60"
+    },
+    {
+      "from": "admin-list",
+      "to": "admin-edit",
+      "label": "Edit",
+      "note": "Per-row Edit link.",
+      "ref": "app/admin/page.js:91"
+    },
+    {
+      "from": "admin-list",
+      "to": "prisma",
+      "label": "List + delete",
+      "note": "findMany on render; deleteQuote Server Action on click.",
+      "ref": "app/admin/page.js:27"
+    },
+    {
+      "from": "admin-add",
+      "to": "prisma",
+      "label": "Insert",
+      "note": "prisma.quote.create on form submit.",
+      "ref": "app/admin/add/page.js:23"
+    },
+    {
+      "from": "admin-edit",
+      "to": "prisma",
+      "label": "Update",
+      "note": "prisma.quote.update on form submit.",
+      "ref": "app/admin/edit/[id]/page.js:23"
+    },
+    {
+      "from": "admin",
+      "to": "logout",
+      "label": "Sign out",
+      "note": "POST /logout deletes the cookie.",
+      "ref": "app/logout/route.js:4"
+    },
+
+    {
+      "from": "developer",
+      "to": "github",
+      "label": "Push + PR",
+      "note": "Branch protection blocks direct push to main.",
+      "ref": ".github/workflows/ci.yml:4"
+    },
+    {
+      "from": "github",
+      "to": "github-actions",
+      "label": "Trigger CI",
+      "note": "Workflow runs on every PR and on push to main.",
+      "ref": ".github/workflows/ci.yml:3"
+    },
+    {
+      "from": "github-actions",
+      "to": "github",
+      "label": "Green check unlocks merge",
+      "note": "Branch protection requires the check job to pass.",
+      "ref": ".github/workflows/ci.yml:10"
+    },
+    {
+      "from": "github",
+      "to": "vercel",
+      "label": "Deploy on main",
+      "note": "Vercel auto-builds and atomically deploys on main update.",
+      "ref": "package.json:7"
+    },
+    {
+      "from": "vercel",
+      "to": "proxy",
+      "label": "Serves edge + app",
+      "note": "Vercel hosts the proxy and the Next.js app.",
+      "ref": "proxy.js:12"
+    }
+  ]
+}

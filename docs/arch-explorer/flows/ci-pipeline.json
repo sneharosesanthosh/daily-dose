@@ -1,0 +1,88 @@
+{
+  "id": "ci-pipeline",
+  "title": "PR to production: CI + CD",
+  "category": "CI/CD",
+  "actor": "Developer",
+  "summary": "Developer pushes a branch and opens a PR. GitHub Actions runs lint + build. Branch protection blocks merging main until the check is green. Once merged, Vercel auto-deploys main atomically. Clean split: GitHub Actions handles CI (gate before merge), Vercel handles CD (deploy after merge).",
+  "steps": [
+    {
+      "from": "developer",
+      "to": "github",
+      "label": "git push -u origin feature",
+      "note": "Direct pushes to main are blocked by branch protection, so work always lands on a feature branch.",
+      "ref": ".github/workflows/ci.yml:4"
+    },
+    {
+      "from": "developer",
+      "to": "github",
+      "label": "open PR",
+      "note": "PR opened against main via the GitHub UI or gh CLI.",
+      "ref": ".github/workflows/ci.yml:3"
+    },
+    {
+      "from": "github",
+      "to": "github-actions",
+      "label": "trigger workflow",
+      "payload": "on: pull_request → branches: [main]",
+      "note": "Same workflow also runs on push to main as a safety net.",
+      "ref": ".github/workflows/ci.yml:3"
+    },
+    {
+      "from": "github-actions",
+      "to": "github-actions",
+      "label": "npm ci",
+      "note": "Clean install from lockfile, cached by setup-node.",
+      "ref": ".github/workflows/ci.yml:29"
+    },
+    {
+      "from": "github-actions",
+      "to": "github-actions",
+      "label": "npm run lint",
+      "note": "eslint via the next config — first thing that fails on bad code.",
+      "ref": ".github/workflows/ci.yml:32"
+    },
+    {
+      "from": "github-actions",
+      "to": "github-actions",
+      "label": "npm run build",
+      "payload": "DATABASE_URL=postgresql://fake:fake@…",
+      "note": "Prisma generate + next build. A fake DATABASE_URL is enough because no queries run at build time — admin pages are force-dynamic and Home wraps DB calls in try/catch.",
+      "ref": ".github/workflows/ci.yml:35"
+    },
+    {
+      "from": "github-actions",
+      "to": "github",
+      "label": "report check status",
+      "note": "Green check unlocks the Merge button. Red check leaves the PR un-mergeable.",
+      "ref": ".github/workflows/ci.yml:10"
+    },
+    {
+      "from": "developer",
+      "to": "github",
+      "label": "click Merge",
+      "note": "Only available once branch protection's required checks pass.",
+      "ref": ".github/workflows/ci.yml:4"
+    },
+    {
+      "from": "github",
+      "to": "vercel",
+      "label": "webhook: main updated",
+      "note": "Vercel's GitHub integration listens for pushes to main.",
+      "ref": "package.json:7"
+    },
+    {
+      "from": "vercel",
+      "to": "vercel",
+      "label": "prisma generate && next build",
+      "note": "Same build script as CI. Builds in Vercel's environment with the real DATABASE_URL + ADMIN_PASSWORD env vars.",
+      "ref": "package.json:7"
+    },
+    {
+      "from": "vercel",
+      "to": "developer",
+      "label": "atomic deploy → live",
+      "note": "Zero-downtime swap. The previous deployment stays addressable as a preview URL for rollback.",
+      "ref": "package.json:6"
+    }
+  ]
+}

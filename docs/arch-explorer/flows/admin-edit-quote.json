@@ -1,0 +1,94 @@
+{
+  "id": "admin-edit-quote",
+  "title": "Admin edits a quote",
+  "category": "Admin CRUD",
+  "actor": "Admin (signed in)",
+  "summary": "From the /admin list, the admin clicks Edit on a row to load /admin/edit/[id]. The page fetches the existing quote and the category list in parallel, pre-fills the form, and runs an updateQuote Server Action with the id curried in via .bind() on submit.",
+  "steps": [
+    {
+      "from": "admin",
+      "to": "proxy",
+      "label": "GET /admin/edit/:id",
+      "note": "Edge gate first.",
+      "ref": "proxy.js:12"
+    },
+    {
+      "from": "proxy",
+      "to": "admin-edit",
+      "label": "pass through",
+      "ref": "proxy.js:3"
+    },
+    {
+      "from": "admin-edit",
+      "to": "admin-edit",
+      "label": "requireAdmin()",
+      "note": "Second cookie check inside the page.",
+      "ref": "app/admin/edit/[id]/page.js:11"
+    },
+    {
+      "from": "admin-edit",
+      "to": "prisma",
+      "label": "Promise.all: findUnique + distinct categories",
+      "note": "Two queries run in parallel — single quote and the category list for the picker.",
+      "ref": "app/admin/edit/[id]/page.js:33"
+    },
+    {
+      "from": "prisma",
+      "to": "neon",
+      "label": "SELECT … WHERE id = ?  ×  SELECT DISTINCT category",
+      "ref": "lib/prisma.js:5"
+    },
+    {
+      "from": "admin-edit",
+      "to": "admin-edit",
+      "label": "notFound() if missing",
+      "note": "Renders the 404 page if the id doesn't exist.",
+      "ref": "app/admin/edit/[id]/page.js:37"
+    },
+    {
+      "from": "admin-edit",
+      "to": "admin-edit",
+      "label": "updateQuote.bind(null, quote.id)",
+      "note": "Curries the id into the Server Action so the form only sends the fields.",
+      "ref": "app/admin/edit/[id]/page.js:40"
+    },
+    {
+      "from": "admin-edit",
+      "to": "admin",
+      "label": "render pre-filled form",
+      "payload": "defaultValue from the loaded quote",
+      "ref": "app/admin/edit/[id]/page.js:51"
+    },
+    {
+      "from": "admin",
+      "to": "admin-edit",
+      "label": "POST form (Server Action)",
+      "payload": "FormData { text, author, source, category }",
+      "ref": "app/admin/edit/[id]/page.js:51"
+    },
+    {
+      "from": "admin-edit",
+      "to": "prisma",
+      "label": "quote.update({ where: { id }, data })",
+      "ref": "app/admin/edit/[id]/page.js:23"
+    },
+    {
+      "from": "prisma",
+      "to": "neon",
+      "label": "UPDATE Quote …",
+      "ref": "lib/prisma.js:5"
+    },
+    {
+      "from": "admin-edit",
+      "to": "admin-edit",
+      "label": "revalidatePath('/'), revalidatePath('/admin')",
+      "ref": "app/admin/edit/[id]/page.js:24"
+    },
+    {
+      "from": "admin-edit",
+      "to": "admin",
+      "label": "redirect → /admin",
+      "ref": "app/admin/edit/[id]/page.js:26"
+    }
+  ]
+}

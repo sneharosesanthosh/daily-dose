@@ -1,0 +1,53 @@
+{
+  "id": "admin-login",
+  "title": "Admin signs in",
+  "category": "Admin auth",
+  "actor": "Admin",
+  "summary": "Admin submits the password form on /login. A Server Action verifies it against ADMIN_PASSWORD and sets an httpOnly admin_session=1 cookie before redirecting to /admin. A wrong password redirects back to /login?error=1.",
+  "steps": [
+    {
+      "from": "admin",
+      "to": "login",
+      "label": "GET /login",
+      "note": "Open the password form.",
+      "ref": "app/login/page.js:22"
+    },
+    {
+      "from": "admin",
+      "to": "login",
+      "label": "POST password (Server Action)",
+      "payload": "FormData { password }",
+      "note": "form action={login} invokes the Server Action.",
+      "ref": "app/login/page.js:33"
+    },
+    {
+      "from": "login",
+      "to": "login",
+      "label": "compare to ADMIN_PASSWORD",
+      "note": "Plain equality check against the env var. Single-admin design — no users table.",
+      "ref": "app/login/page.js:8"
+    },
+    {
+      "from": "login",
+      "to": "admin",
+      "label": "Set-Cookie: admin_session=1",
+      "payload": "httpOnly, sameSite: lax, secure in prod, 7-day maxAge",
+      "note": "httpOnly so client JS can't read it; secure so it's HTTPS-only in production.",
+      "ref": "app/login/page.js:10"
+    },
+    {
+      "from": "login",
+      "to": "admin",
+      "label": "redirect → /admin",
+      "note": "Successful path. Wrong password instead redirects to /login?error=1.",
+      "ref": "app/login/page.js:17"
+    },
+    {
+      "from": "admin",
+      "to": "proxy",
+      "label": "GET /admin (next request)",
+      "note": "Subsequent admin navigation now passes the proxy gate — see proxy-auth-gate flow.",
+      "ref": "proxy.js:12"
+    }
+  ]
+}

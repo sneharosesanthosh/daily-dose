@@ -1,0 +1,24 @@
+{
+  "categories": [
+    {
+      "id": "visitor",
+      "label": "Visitor",
+      "flows": ["visitor-generate-quote"]
+    },
+    {
+      "id": "admin-auth",
+      "label": "Admin auth",
+      "flows": ["admin-login", "proxy-auth-gate", "admin-logout"]
+    },
+    {
+      "id": "admin-crud",
+      "label": "Admin CRUD",
+      "flows": ["admin-add-quote", "admin-edit-quote", "admin-delete-quote"]
+    },
+    {
+      "id": "cicd",
+      "label": "CI/CD",
+      "flows": ["ci-pipeline"]
+    }
+  ]
+}
