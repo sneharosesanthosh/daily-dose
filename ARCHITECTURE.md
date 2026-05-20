@@ -10,10 +10,17 @@ graph TB
     Visitor[👤 Visitor]
     Admin[🔐 Admin]
 
+    subgraph ClaudeCode["Claude Code (dev tooling)"]
+        ClaudeLLM["Claude (LLM)"]
+        MCPServer["GitHub MCP server<br/>(read-only PAT)"]
+        ClaudeLLM -->|"structured<br/>tool calls"| MCPServer
+    end
+
     subgraph GitHub["GitHub"]
         Repo[(Repository)]
         Actions["GitHub Actions<br/>CI: lint + build"]
         Protection["Branch Protection<br/>blocks direct push to main"]
+        GHAPI["GitHub REST API"]
     end
 
     subgraph Vercel["Vercel (Edge + Serverless)"]
@@ -32,6 +39,9 @@ graph TB
     Neon[("Neon Postgres<br/>via WebSocket")]
 
     Dev -->|"push branch + open PR"| Repo
+    Dev -.->|"asks Claude<br/>for help"| ClaudeLLM
+    MCPServer -.->|"HTTPS<br/>(read-only)"| GHAPI
+    GHAPI -.-> Repo
     Repo --> Actions
     Actions -->|"green ✅ unlocks merge"| Protection
     Protection -->|"merge to main"| Repo
@@ -152,6 +162,73 @@ sequenceDiagram
 - Direct pushes to `main` are blocked
 - PRs cannot be merged until the `check` job (lint + build) is green
 - All changes must therefore go through PR → CI → merge → deploy
+
+---
+
+## MCP servers (agentic tooling)
+
+Claude Code can talk to external systems through **MCP** (Model Context Protocol) servers. Each MCP server exposes a set of structured tools (typed functions) that Claude can call — cleaner than shelling out to CLI tools, with per-function permission control and reusability across MCP-compatible apps.
+
+### Configured MCP servers
+
+| Server | Endpoint | Purpose | Config scope |
+|---|---|---|---|
+| **GitHub MCP** | `https://api.githubcopilot.com/mcp/` (remote HTTP) | Structured access to GitHub APIs (PRs, issues, repo metadata) | Local — config in `~/.claude.json`, not committed |
+
+### How the GitHub MCP is wired up
+
+```mermaid
+graph LR
+    Claude["Claude (LLM)"]
+    CC["Claude Code"]
+    MCP["GitHub MCP server<br/>(remote HTTP)"]
+    GH["GitHub REST API"]
+
+    Claude -->|"calls structured tool<br/>e.g. list_pull_requests"| CC
+    CC -->|"HTTPS + Bearer PAT"| MCP
+    MCP -->|"HTTPS API call"| GH
+    GH -->|"JSON response"| MCP
+    MCP -->|"structured result"| CC
+    CC -->|"tool output"| Claude
+```
+
+### Authentication — fine-grained PAT
+
+A **GitHub fine-grained personal access token (PAT)** is used as a Bearer token by the MCP server. Scoped narrowly:
+
+- **Repository:** only `daily-dose` (no other repos accessible)
+- **Permissions (all read-only):**
+  - Contents: Read
+  - Issues: Read
+  - Metadata: Read
+  - Pull requests: Read
+- **Expiration:** 90 days (rotated when expired)
+
+The token lives in `~/.claude.json` on the local machine. It is never committed to the repo, and Claude Code never echoes the token back into the LLM context — even though the LLM can *use* the MCP tools, it never sees the raw token.
+
+### Conservative read-only setup — defense in depth
+
+The PAT itself enforces the safety boundary: **even if Claude attempts a write/delete operation through the MCP, GitHub will reject the API call** because the token lacks those scopes. This is a stronger guarantee than relying on Claude's good behavior or per-tool allow lists alone.
+
+When write capability is genuinely needed (e.g., opening PRs via MCP), the plan is to **deliberately upgrade the PAT's scopes** with explicit human-in-the-loop consent — not auto-grant Claude broader access.
+
+### Setup command (for reproducibility)
+
+```bash
+claude mcp add --transport http github https://api.githubcopilot.com/mcp/ \
+  --header "Authorization: Bearer $GITHUB_MCP_TOKEN" \
+  --scope local
+```
+
+The `$GITHUB_MCP_TOKEN` env var is set in the user's shell environment, not committed anywhere in the repo.
+
+### Verification
+
+```bash
+claude mcp list           # should show "github: ✓ Connected"
+```
+
+Then inside Claude Code, `/mcp` shows connected servers and the tool count exposed by each one.
 
 ---
 
