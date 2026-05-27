@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { revalidatePath } from "next/cache";
+import { createQuote, ValidationError } from "@/lib/quotes";
 import CategoryPicker from "../CategoryPicker";
 import SubmitButton from "../SubmitButton";
 
@@ -15,12 +16,17 @@ async function requireAdmin() {
 
 async function addQuote(formData) {
   "use server";
-  const text = formData.get("text")?.trim();
-  const author = formData.get("author")?.trim() || null;
-  const source = formData.get("source")?.trim() || null;
-  const category = formData.get("category")?.trim();
-  if (!text || !category) return;
-  await prisma.quote.create({ data: { text, author, source, category } });
+  try {
+    await createQuote({
+      text: formData.get("text"),
+      author: formData.get("author"),
+      source: formData.get("source"),
+      category: formData.get("category"),
+    });
+  } catch (err) {
+    if (err instanceof ValidationError) return;
+    throw err;
+  }
   revalidatePath("/");
   revalidatePath("/admin");
   redirect("/admin");
